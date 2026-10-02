@@ -341,7 +341,15 @@ def predict_image(image_path: Path, model_path: Path) -> None:
 def train(args: argparse.Namespace) -> None:
     if args.hdfs_uri:
         data_dir = args.cache_dir.resolve()
-        stage_hdfs_images(args.hdfs_uri, data_dir)
+        try:
+            stage_hdfs_images(args.hdfs_uri, data_dir)
+        except Exception as error:  # pragma: no cover - depends on external HDFS availability
+            if data_dir.is_dir() and any(data_dir.rglob("*.jpg")):
+                print(
+                    f"HDFS indisponible ({error}). Utilisation du cache local déjà présent: {data_dir}"
+                )
+            else:
+                raise
     else:
         data_dir = args.data_dir.resolve()
     if not data_dir.is_dir():
