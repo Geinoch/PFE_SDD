@@ -71,6 +71,7 @@ def main() -> None:
     changed_spark_home = False
     temporary_drive = None
     spark = None
+    gateway_process = None
 
     try:
         changed_spark_home, temporary_drive = configure_spark_home()
@@ -81,6 +82,7 @@ def main() -> None:
             .config("spark.hadoop.fs.defaultFS", default_fs)
             .getOrCreate()
         )
+        gateway_process = spark.sparkContext._gateway.proc
 
         images = (
             spark.read.format("binaryFile")
@@ -113,14 +115,25 @@ def main() -> None:
                 os.environ.pop("SPARK_HOME", None)
             else:
                 os.environ["SPARK_HOME"] = previous_spark_home
-        if temporary_drive is not None:
+        gateway_stopped = True
+        if gateway_process is not None and temporary_drive is not None:
+            subprocess.run(
+                ["cmd", "/c", "taskkill", "/f", "/t", "/pid", str(gateway_process.pid)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            try:
+                gateway_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                gateway_stopped = False
+        if temporary_drive is not None and gateway_stopped:
             subprocess.run(
                 ["subst", f"{temporary_drive}:", "/d"],
                 check=False,
                 capture_output=True,
                 text=True,
             )
-
 
 if __name__ == "__main__":
     main()
