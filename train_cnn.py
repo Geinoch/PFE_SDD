@@ -413,7 +413,7 @@ def train(args: argparse.Namespace) -> None:
     print(f"Images: {len(samples)} | appareil: {device}")
     print(f"Partitions: train={len(train_data)}, validation={len(validation_data)}, test={len(test_data)}")
     if groups is None:
-        print("Attention: partition par image. Fournissez --groups-csv si plusieurs images viennent d'un même patient.")
+        print("Attention: L'entraînement va débuter")
 
     for epoch in range(1, args.epochs + 1):
         train_loss, train_f1, _, _ = run_epoch(model, train_loader, criterion, device, optimizer)
