@@ -69,11 +69,11 @@ class BrainMRIDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int, str]:
         image_path, label = self.samples[index]
         with Image.open(image_path) as image:
             image_tensor = self.transform(image.convert("RGB"))
-        return image_tensor, label
+        return image_tensor, label, image_path
 
 
 class BrainCNN(nn.Module):
@@ -318,15 +318,18 @@ def run_epoch(
     criterion: nn.Module,
     device: torch.device,
     optimizer: torch.optim.Optimizer | None = None,
-) -> tuple[float, float, list[int], list[int]]:
+    collect_details: bool = False,
+) -> tuple[float, float, list[int], list[int], list[str], list[float]]:
     training = optimizer is not None
     model.train(training)
     total_loss = 0.0
     actual: list[int] = []
     predicted: list[int] = []
+    image_paths: list[str] = []
+    confidences: list[float] = []
 
     with torch.set_grad_enabled(training):
-        for images, labels in loader:
+        for images, labels, batch_paths in loader:
             images = images.to(device)
             labels = labels.to(device)
             if optimizer is not None:
@@ -339,10 +342,13 @@ def run_epoch(
             total_loss += loss.item() * labels.size(0)
             actual.extend(labels.cpu().tolist())
             predicted.extend(logits.argmax(dim=1).cpu().tolist())
+            if collect_details:
+                image_paths.extend(batch_paths)
+                confidences.extend(torch.softmax(logits, dim=1).max(dim=1).values.cpu().tolist())
 
     average_loss = total_loss / len(loader.dataset)
     macro_f1 = f1_score(actual, predicted, average="macro", zero_division=0)
-    return average_loss, macro_f1, actual, predicted
+    return average_loss, macro_f1, actual, predicted, image_paths, confidences
 
 
 def predict_image(image_path: Path, model_path: Path) -> None:
@@ -416,8 +422,8 @@ def train(args: argparse.Namespace) -> None:
         print("Attention: L'entraînement va débuter")
 
     for epoch in range(1, args.epochs + 1):
-        train_loss, train_f1, _, _ = run_epoch(model, train_loader, criterion, device, optimizer)
-        validation_loss, validation_f1, _, _ = run_epoch(
+        train_loss, train_f1, _, _, _, _ = run_epoch(model, train_loader, criterion, device, optimizer)
+        validation_loss, validation_f1, _, _, _, _ = run_epoch(
             model, validation_loader, criterion, device
         )
         print(
@@ -445,7 +451,9 @@ def train(args: argparse.Namespace) -> None:
 
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
     model.load_state_dict(checkpoint["model_state_dict"])
-    test_loss, test_f1, actual, predicted = run_epoch(model, test_loader, criterion, device)
+    test_loss, test_f1, actual, predicted, test_paths, confidences = run_epoch(
+        model, test_loader, criterion, device, collect_details=True
+    )
     report = classification_report(
         actual, predicted, labels=list(range(len(CLASS_NAMES))),
         target_names=list(CLASS_NAMES), output_dict=True, zero_division=0
@@ -462,9 +470,26 @@ def train(args: argparse.Namespace) -> None:
     }
     results_path = args.output_dir / "evaluation.json"
     results_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    predictions_path = args.output_dir / "test_predictions.csv"
+    with predictions_path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(("image_path", "actual_class", "predicted_class", "confidence", "correct"))
+        for image_path, actual_label, predicted_label, confidence in zip(
+            test_paths, actual, predicted, confidences
+        ):
+            writer.writerow(
+                (
+                    image_path,
+                    CLASS_NAMES[actual_label],
+                    CLASS_NAMES[predicted_label],
+                    f"{confidence:.6f}",
+                    actual_label == predicted_label,
+                )
+            )
     print(f"F1 macro test: {test_f1:.4f} | perte test: {test_loss:.4f}")
     print(f"Modèle: {checkpoint_path}")
     print(f"Évaluation: {results_path}")
+    print(f"Prédictions détaillées: {predictions_path}")
     print("Les résultats sont expérimentaux et ne constituent pas un diagnostic médical.")
 
 
