@@ -19,6 +19,7 @@ from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
+from torchvision.transforms import functional as transform_functional
 
 CLASS_NAMES = (
     "Gliome",
@@ -103,15 +104,40 @@ class BrainCNN(nn.Module):
         return self.classifier(self.features(images))
 
 
+class ResizeWithPadding:
+    def __init__(self, image_size: int):
+        self.image_size = image_size
+
+    def __call__(self, image: Image.Image) -> Image.Image:
+        width, height = image.size
+        scale = min(self.image_size / width, self.image_size / height)
+        resized_width = max(1, round(width * scale))
+        resized_height = max(1, round(height * scale))
+        image = transform_functional.resize(
+            image, (resized_height, resized_width), antialias=True
+        )
+
+        horizontal_padding = self.image_size - resized_width
+        vertical_padding = self.image_size - resized_height
+        left = horizontal_padding // 2
+        top = vertical_padding // 2
+        padding = (
+            left,
+            top,
+            horizontal_padding - left,
+            vertical_padding - top,
+        )
+        return transform_functional.pad(image, padding, fill=0)
+
+
 def make_transforms(image_size: int) -> tuple[transforms.Compose, transforms.Compose]:
     common = [
-        transforms.Resize((image_size, image_size)),
+        ResizeWithPadding(image_size),
         transforms.ToTensor(),
         transforms.Normalize(IMAGE_MEAN, IMAGE_STD),
     ]
     training = transforms.Compose(
-        [transforms.Resize((image_size, image_size)), transforms.RandomRotation(8)]
-        + common[1:]
+        [common[0], transforms.RandomRotation(8)] + common[1:]
     )
     evaluation = transforms.Compose(common)
     return training, evaluation
@@ -452,7 +478,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--groups-csv", type=Path, help="CSV facultatif avec les colonnes image,patient_id.")
     parser.add_argument("--predict-image", type=Path, help="Classer une image avec un modèle déjà entraîné.")
     parser.add_argument("--model-path", type=Path, default=Path("artifacts/best_model.pt"))
-    parser.add_argument("--image-size", type=int, default=224)
+    parser.add_argument("--image-size", type=int, default=320)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--patience", type=int, default=5)
