@@ -324,7 +324,7 @@ def predict_image(image_path: Path, model_path: Path) -> None:
     predicted_index = int(probabilities.argmax().item())
     print(f"Classe prédite: {CLASS_NAMES[predicted_index]}")
     print(f"Confiance du modèle: {probabilities[predicted_index].item():.1%}")
-    print("Cette sortie est expérimentale et ne constitue pas un diagnostic médical.")
+    
 
 
 def train(args: argparse.Namespace) -> None:
