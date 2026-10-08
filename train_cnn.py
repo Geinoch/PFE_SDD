@@ -15,7 +15,7 @@ import numpy as np
 import torch
 from PIL import Image
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
-from sklearn.model_selection import GroupShuffleSplit, train_test_split
+from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
@@ -143,64 +143,21 @@ def make_transforms(image_size: int) -> tuple[transforms.Compose, transforms.Com
     return training, evaluation
 
 
-def path_key(path: Path) -> str:
-    return str(path.resolve()).casefold()
-
-
-def load_patient_groups(manifest: Path, data_dir: Path) -> dict[str, str]:
-    groups: dict[str, str] = {}
-    with manifest.open("r", encoding="utf-8-sig", newline="") as file:
-        reader = csv.DictReader(file)
-        if not reader.fieldnames or not {"image", "patient_id"}.issubset(reader.fieldnames):
-            raise ValueError("Le CSV doit contenir les colonnes 'image' et 'patient_id'.")
-        for row in reader:
-            image_path = Path(row["image"])
-            if not image_path.is_absolute():
-                image_path = data_dir / image_path
-            patient_id = row["patient_id"].strip()
-            if not patient_id:
-                raise ValueError(f"Identifiant patient vide pour {row['image']!r}.")
-            key = path_key(image_path)
-            if key in groups and groups[key] != patient_id:
-                raise ValueError(f"Identifiants patients contradictoires pour {row['image']!r}.")
-            groups[key] = patient_id
-    return groups
-
-
-def split_indices(
-    labels: np.ndarray, groups: np.ndarray | None, seed: int
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def split_indices(labels: np.ndarray, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     indices = np.arange(len(labels))
-    if groups is None:
-        class_counts = np.bincount(labels, minlength=len(CLASS_NAMES))
-        if np.any(class_counts < 5):
-            raise ValueError("Il faut au moins 5 images par classe pour créer les partitions stratifiées.")
-        train_validation, test = train_test_split(
-            indices, test_size=0.2, random_state=seed, stratify=labels
-        )
-        train, validation = train_test_split(
-            train_validation,
-            test_size=0.125,
-            random_state=seed,
-            stratify=labels[train_validation],
-        )
-        return train, validation, test
-
-    for attempt in range(100):
-        outer = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=seed + attempt)
-        train_validation, test = next(outer.split(indices, labels, groups))
-        inner = GroupShuffleSplit(n_splits=1, test_size=0.125, random_state=seed + attempt)
-        train_offset, validation_offset = next(
-            inner.split(train_validation, labels[train_validation], groups[train_validation])
-        )
-        train = train_validation[train_offset]
-        validation = train_validation[validation_offset]
-        if all(set(labels[part]) == set(range(len(CLASS_NAMES))) for part in (train, validation, test)):
-            return train, validation, test
-    raise ValueError(
-        "Impossible de placer les 4 classes dans train/validation/test sans séparer les patients. "
-        "Vérifiez le CSV et le nombre de patients par classe."
+    class_counts = np.bincount(labels, minlength=len(CLASS_NAMES))
+    if np.any(class_counts < 5):
+        raise ValueError("Il faut au moins 5 images par classe pour créer les partitions stratifiées.")
+    train_validation, test = train_test_split(
+        indices, test_size=0.2, random_state=seed, stratify=labels
     )
+    train, validation = train_test_split(
+        train_validation,
+        test_size=0.125,
+        random_state=seed,
+        stratify=labels[train_validation],
+    )
+    return train, validation, test
 
 
 def build_samples(data_dir: Path) -> list[tuple[str, int]]:
@@ -389,15 +346,7 @@ def train(args: argparse.Namespace) -> None:
 
     samples = build_samples(data_dir)
     labels = np.asarray([label for _, label in samples], dtype=np.int64)
-    groups: np.ndarray | None = None
-    if args.groups_csv:
-        group_map = load_patient_groups(args.groups_csv, data_dir)
-        missing = [path for path, _ in samples if path_key(Path(path)) not in group_map]
-        if missing:
-            raise ValueError(f"Le CSV ne contient pas d'identifiant patient pour {len(missing)} image(s).")
-        groups = np.asarray([group_map[path_key(Path(path))] for path, _ in samples])
-
-    train_indices, validation_indices, test_indices = split_indices(labels, groups, args.seed)
+    train_indices, validation_indices, test_indices = split_indices(labels, args.seed)
     train_transform, evaluation_transform = make_transforms(args.image_size)
     train_data = BrainMRIDataset([samples[i] for i in train_indices], train_transform)
     validation_data = BrainMRIDataset([samples[i] for i in validation_indices], evaluation_transform)
@@ -418,9 +367,6 @@ def train(args: argparse.Namespace) -> None:
 
     print(f"Images: {len(samples)} | appareil: {device}")
     print(f"Partitions: train={len(train_data)}, validation={len(validation_data)}, test={len(test_data)}")
-    if groups is None:
-        print("Attention: L'entraînement va débuter")
-
     for epoch in range(1, args.epochs + 1):
         train_loss, train_f1, _, _, _, _ = run_epoch(model, train_loader, criterion, device, optimizer)
         validation_loss, validation_f1, _, _, _, _ = run_epoch(
@@ -490,7 +436,7 @@ def train(args: argparse.Namespace) -> None:
     print(f"Modèle: {checkpoint_path}")
     print(f"Évaluation: {results_path}")
     print(f"Prédictions détaillées: {predictions_path}")
-    print("Les résultats sont expérimentaux et ne constituent pas un diagnostic médical.")
+  
 
 
 def parse_args() -> argparse.Namespace:
@@ -500,7 +446,6 @@ def parse_args() -> argparse.Namespace:
     source.add_argument("--hdfs-uri", help="URI HDFS contenant un sous-dossier par classe.")
     parser.add_argument("--cache-dir", type=Path, default=Path(".cache/mri_training"))
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts"))
-    parser.add_argument("--groups-csv", type=Path, help="CSV facultatif avec les colonnes image,patient_id.")
     parser.add_argument("--predict-image", type=Path, help="Classer une image avec un modèle déjà entraîné.")
     parser.add_argument("--model-path", type=Path, default=Path("artifacts/best_model.pt"))
     parser.add_argument("--image-size", type=int, default=320)
