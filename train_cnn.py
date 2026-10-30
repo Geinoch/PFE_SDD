@@ -43,6 +43,8 @@ CLASS_ALIASES = {
 }
 IMAGE_MEAN = (0.5, 0.5, 0.5)
 IMAGE_STD = (0.5, 0.5, 0.5)
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def normalize_name(value: str) -> str:
@@ -104,6 +106,19 @@ class BrainCNN(nn.Module):
         return self.classifier(self.features(images))
 
 
+def build_model(model_type: str, pretrained: bool = True) -> nn.Module:
+    if model_type == "cnn":
+        return BrainCNN()
+    if model_type == "resnet18":
+        from torchvision.models import ResNet18_Weights, resnet18
+
+        weights = ResNet18_Weights.DEFAULT if pretrained else None
+        model = resnet18(weights=weights)
+        model.fc = nn.Linear(model.fc.in_features, len(CLASS_NAMES))
+        return model
+    raise ValueError(f"Type de modèle inconnu: {model_type}")
+
+
 class ResizeWithPadding:
     def __init__(self, image_size: int):
         self.image_size = image_size
@@ -130,11 +145,16 @@ class ResizeWithPadding:
         return transform_functional.pad(image, padding, fill=0)
 
 
-def make_transforms(image_size: int) -> tuple[transforms.Compose, transforms.Compose]:
+def make_transforms(
+    image_size: int, model_type: str = "cnn"
+) -> tuple[transforms.Compose, transforms.Compose]:
+    mean, standard_deviation = (
+        (IMAGENET_MEAN, IMAGENET_STD) if model_type == "resnet18" else (IMAGE_MEAN, IMAGE_STD)
+    )
     common = [
         ResizeWithPadding(image_size),
         transforms.ToTensor(),
-        transforms.Normalize(IMAGE_MEAN, IMAGE_STD),
+        transforms.Normalize(mean, standard_deviation),
     ]
     training = transforms.Compose(
         [common[0], transforms.RandomRotation(8)] + common[1:]
@@ -311,11 +331,12 @@ def run_epoch(
 def predict_image(image_path: Path, model_path: Path) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(model_path, map_location=device, weights_only=True)
-    model = BrainCNN()
+    model_type = checkpoint.get("model_type", "cnn")
+    model = build_model(model_type, pretrained=False)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
     model.eval()
-    _, evaluation_transform = make_transforms(checkpoint["image_size"])
+    _, evaluation_transform = make_transforms(checkpoint["image_size"], model_type)
 
     with Image.open(image_path) as image:
         image_tensor = evaluation_transform(image.convert("RGB")).unsqueeze(0).to(device)
@@ -347,7 +368,7 @@ def train(args: argparse.Namespace) -> None:
     samples = build_samples(data_dir)
     labels = np.asarray([label for _, label in samples], dtype=np.int64)
     train_indices, validation_indices, test_indices = split_indices(labels, args.seed)
-    train_transform, evaluation_transform = make_transforms(args.image_size)
+    train_transform, evaluation_transform = make_transforms(args.image_size, args.model_type)
     train_data = BrainMRIDataset([samples[i] for i in train_indices], train_transform)
     validation_data = BrainMRIDataset([samples[i] for i in validation_indices], evaluation_transform)
     test_data = BrainMRIDataset([samples[i] for i in test_indices], evaluation_transform)
@@ -356,7 +377,7 @@ def train(args: argparse.Namespace) -> None:
     test_loader = DataLoader(test_data, batch_size=args.batch_size, num_workers=0)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = BrainCNN().to(device)
+    model = build_model(args.model_type).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -386,6 +407,9 @@ def train(args: argparse.Namespace) -> None:
                     "model_state_dict": model.state_dict(),
                     "class_names": CLASS_NAMES,
                     "image_size": args.image_size,
+                    "model_type": args.model_type,
+                    "pretrained": args.model_type == "resnet18",
+                    "pretrained_weights": "ResNet18_Weights.IMAGENET1K_V1" if args.model_type == "resnet18" else None,
                 },
                 checkpoint_path,
             )
@@ -413,6 +437,9 @@ def train(args: argparse.Namespace) -> None:
         "classification_report": report,
         "best_validation_macro_f1": best_validation_f1,
         "class_names": CLASS_NAMES,
+        "model_type": args.model_type,
+        "pretrained": args.model_type == "resnet18",
+        "pretrained_weights": "ResNet18_Weights.IMAGENET1K_V1" if args.model_type == "resnet18" else None,
     }
     results_path = args.output_dir / "evaluation.json"
     results_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -448,6 +475,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts"))
     parser.add_argument("--predict-image", type=Path, help="Classer une image avec un modèle déjà entraîné.")
     parser.add_argument("--model-path", type=Path, default=Path("artifacts/best_model.pt"))
+    parser.add_argument("--model-type", choices=("cnn", "resnet18"), default="cnn")
     parser.add_argument("--image-size", type=int, default=320)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=20)

@@ -1,0 +1,76 @@
+{
+  "validation_macro_f1": 0.8195121442938037,
+  "validation_confusion_matrix": [
+    [
+      89,
+      38,
+      6,
+      7
+    ],
+    [
+      0,
+      102,
+      24,
+      13
+    ],
+    [
+      0,
+      4,
+      130,
+      2
+    ],
+    [
+      0,
+      3,
+      0,
+      125
+    ]
+  ],
+  "classification_report": {
+    "Gliome": {
+      "precision": 1.0,
+      "recall": 0.6357142857142857,
+      "f1-score": 0.777292576419214,
+      "support": 140.0
+    },
+    "Méningiome": {
+      "precision": 0.6938775510204082,
+      "recall": 0.7338129496402878,
+      "f1-score": 0.7132867132867133,
+      "support": 139.0
+    },
+    "Tumeur pituitaire": {
+      "precision": 0.8125,
+      "recall": 0.9558823529411765,
+      "f1-score": 0.8783783783783784,
+      "support": 136.0
+    },
+    "Aucune tumeur": {
+      "precision": 0.8503401360544217,
+      "recall": 0.9765625,
+      "f1-score": 0.9090909090909091,
+      "support": 128.0
+    },
+    "accuracy": 0.8213627992633518,
+    "macro avg": {
+      "precision": 0.8391794217687074,
+      "recall": 0.8254930220739375,
+      "f1-score": 0.8195121442938037,
+      "support": 543.0
+    },
+    "weighted avg": {
+      "precision": 0.8393969005650141,
+      "recall": 0.8213627992633518,
+      "f1-score": 0.8172944929440865,
+      "support": 543.0
+    }
+  },
+  "class_names": [
+    "Gliome",
+    "Méningiome",
+    "Tumeur pituitaire",
+    "Aucune tumeur"
+  ],
+  "split_seed": 42,
+  "image_size": 192
+}
