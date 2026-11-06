@@ -1,0 +1,87 @@
+{
+  "test_loss": 0.08947726168273562,
+  "test_macro_f1": 0.9734230244937826,
+  "confusion_matrix": [
+    [
+      277,
+      3,
+      0,
+      0
+    ],
+    [
+      9,
+      259,
+      7,
+      2
+    ],
+    [
+      0,
+      3,
+      268,
+      2
+    ],
+    [
+      1,
+      0,
+      2,
+      253
+    ]
+  ],
+  "classification_report": {
+    "Gliome": {
+      "precision": 0.9651567944250871,
+      "recall": 0.9892857142857143,
+      "f1-score": 0.9770723104056437,
+      "support": 280.0
+    },
+    "Méningiome": {
+      "precision": 0.9773584905660377,
+      "recall": 0.9350180505415162,
+      "f1-score": 0.955719557195572,
+      "support": 277.0
+    },
+    "Tumeur pituitaire": {
+      "precision": 0.9675090252707581,
+      "recall": 0.9816849816849816,
+      "f1-score": 0.9745454545454545,
+      "support": 273.0
+    },
+    "Aucune tumeur": {
+      "precision": 0.9844357976653697,
+      "recall": 0.98828125,
+      "f1-score": 0.98635477582846,
+      "support": 256.0
+    },
+    "accuracy": 0.9732965009208103,
+    "macro avg": {
+      "precision": 0.9736150269818131,
+      "recall": 0.9735674991280531,
+      "f1-score": 0.9734230244937826,
+      "support": 1086.0
+    },
+    "weighted avg": {
+      "precision": 0.9734049101538383,
+      "recall": 0.9732965009208103,
+      "f1-score": 0.9731789097235253,
+      "support": 1086.0
+    }
+  },
+  "best_validation_macro_f1": 0.9798472000887863,
+  "class_names": [
+    "Gliome",
+    "Méningiome",
+    "Tumeur pituitaire",
+    "Aucune tumeur"
+  ],
+  "model_type": "resnet50",
+  "pretrained": true,
+  "pretrained_weights": "ResNet50_Weights.IMAGENET1K_V2",
+  "training_config": {
+    "image_size": 192,
+    "seed": 2026,
+    "batch_size": 32,
+    "epochs": 20,
+    "patience": 5,
+    "learning_rate": 0.0001
+  }
+}
