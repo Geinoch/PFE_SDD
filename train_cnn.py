@@ -116,7 +116,21 @@ def build_model(model_type: str, pretrained: bool = True) -> nn.Module:
         model = resnet18(weights=weights)
         model.fc = nn.Linear(model.fc.in_features, len(CLASS_NAMES))
         return model
+    if model_type == "resnet50":
+        from torchvision.models import ResNet50_Weights, resnet50
+
+        weights = ResNet50_Weights.DEFAULT if pretrained else None
+        model = resnet50(weights=weights)
+        model.fc = nn.Linear(model.fc.in_features, len(CLASS_NAMES))
+        return model
     raise ValueError(f"Type de modèle inconnu: {model_type}")
+
+
+def pretrained_weights_name(model_type: str) -> str | None:
+    return {
+        "resnet18": "ResNet18_Weights.IMAGENET1K_V1",
+        "resnet50": "ResNet50_Weights.IMAGENET1K_V2",
+    }.get(model_type)
 
 
 class ResizeWithPadding:
@@ -149,7 +163,9 @@ def make_transforms(
     image_size: int, model_type: str = "cnn"
 ) -> tuple[transforms.Compose, transforms.Compose]:
     mean, standard_deviation = (
-        (IMAGENET_MEAN, IMAGENET_STD) if model_type == "resnet18" else (IMAGE_MEAN, IMAGE_STD)
+        (IMAGENET_MEAN, IMAGENET_STD)
+        if model_type in ("resnet18", "resnet50")
+        else (IMAGE_MEAN, IMAGE_STD)
     )
     common = [
         ResizeWithPadding(image_size),
@@ -408,8 +424,13 @@ def train(args: argparse.Namespace) -> None:
                     "class_names": CLASS_NAMES,
                     "image_size": args.image_size,
                     "model_type": args.model_type,
-                    "pretrained": args.model_type == "resnet18",
-                    "pretrained_weights": "ResNet18_Weights.IMAGENET1K_V1" if args.model_type == "resnet18" else None,
+                    "pretrained": pretrained_weights_name(args.model_type) is not None,
+                    "pretrained_weights": pretrained_weights_name(args.model_type),
+                    "seed": args.seed,
+                    "batch_size": args.batch_size,
+                    "epochs": args.epochs,
+                    "patience": args.patience,
+                    "learning_rate": args.learning_rate,
                 },
                 checkpoint_path,
             )
@@ -438,8 +459,16 @@ def train(args: argparse.Namespace) -> None:
         "best_validation_macro_f1": best_validation_f1,
         "class_names": CLASS_NAMES,
         "model_type": args.model_type,
-        "pretrained": args.model_type == "resnet18",
-        "pretrained_weights": "ResNet18_Weights.IMAGENET1K_V1" if args.model_type == "resnet18" else None,
+        "pretrained": pretrained_weights_name(args.model_type) is not None,
+        "pretrained_weights": pretrained_weights_name(args.model_type),
+        "training_config": {
+            "image_size": args.image_size,
+            "seed": args.seed,
+            "batch_size": args.batch_size,
+            "epochs": args.epochs,
+            "patience": args.patience,
+            "learning_rate": args.learning_rate,
+        },
     }
     results_path = args.output_dir / "evaluation.json"
     results_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -475,7 +504,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts"))
     parser.add_argument("--predict-image", type=Path, help="Classer une image avec un modèle déjà entraîné.")
     parser.add_argument("--model-path", type=Path, default=Path("artifacts/best_model.pt"))
-    parser.add_argument("--model-type", choices=("cnn", "resnet18"), default="cnn")
+    parser.add_argument("--model-type", choices=("cnn", "resnet18", "resnet50"), default="cnn")
     parser.add_argument("--image-size", type=int, default=320)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=20)
